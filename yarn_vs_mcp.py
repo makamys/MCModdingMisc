@@ -3,6 +3,19 @@ from pathlib import Path
 import csv
 import tqdm
 
+# Where to get the data:
+# https://maven.minecraftforge.net/de/oceanlabs/mcp/mcp/1.7.10/mcp-1.7.10-srg.zip
+# https://maven.minecraftforge.net/de/oceanlabs/mcp/mcp_stable/12-1.7.10/mcp_stable-12-1.7.10.zip
+# [changing!] https://repo.legacyfabric.net/repository/legacyfabric/net/legacyfabric/yarn/1.7.10%2Bbuild.458/yarn-1.7.10%2Bbuild.458-mergedv2.jar
+# https://maven.minecraftforge.net/de/oceanlabs/mcp/mcp/1.8.9/mcp-1.8.9-srg.zip
+# https://maven.minecraftforge.net/de/oceanlabs/mcp/mcp_stable/22-1.8.9/mcp_stable-22-1.8.9.zip
+# [changing!] https://repo.legacyfabric.net/repository/legacyfabric/net/legacyfabric/yarn/1.8.9%2Bbuild.458/yarn-1.8.9%2Bbuild.458-mergedv2.jar
+# https://maven.minecraftforge.net/de/oceanlabs/mcp/mcp/1.12.2/mcp-1.12.2-srg.zip
+# https://maven.minecraftforge.net/de/oceanlabs/mcp/mcp_stable/39-1.12/mcp_stable-39-1.12.zip
+#
+# Yarn is continually updated, visit https://grayray75.github.io/LegacyFabric-Versions/ to find the latest stable version number.
+# You can also visit https://github.com/Legacy-Fabric/yarn/tree/experimental_intermediaries and assemble experimental mappings locally.
+
 if len(sys.argv) != 9:
     sys.exit(r'''Usage: {} mcp-1.7.10-srg mcp_stable-12-1.7.10 yarn-1.7.10-mergedv2 mcp-1.8.9-srg mcp_stable-22-1.8.9 yarn-1.8.9-mergedv2 mcp-1.12.2-srg mcp_stable-39-1.12
 
