@@ -41,3 +41,5 @@ total coverage:
 * **Yarn18**: 1.7:notch -> 1.7:srg -> 1.8:notch -> 1.8:intermediary -> 1.8:yarn
 * **Yarn**: Yarn17 + Yarn18
 * **MCP+Yarn**: MCP + Yarn
+
+Coverage is calculated in the following way: we iterate over every "notch" name, and attempt to map them through one of the above chains. The coverage value is the amount of names that successfully completed the chain divided by the amount of total names.
