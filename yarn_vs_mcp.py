@@ -2,14 +2,15 @@ import sys
 from pathlib import Path
 import csv
 import tqdm
+import re
 
 # Where to get the data:
 # https://maven.minecraftforge.net/de/oceanlabs/mcp/mcp/1.7.10/mcp-1.7.10-srg.zip
 # https://maven.minecraftforge.net/de/oceanlabs/mcp/mcp_stable/12-1.7.10/mcp_stable-12-1.7.10.zip
-# [changing!] https://repo.legacyfabric.net/repository/legacyfabric/net/legacyfabric/yarn/1.7.10%2Bbuild.458/yarn-1.7.10%2Bbuild.458-mergedv2.jar
+# [dynamic!] https://repo.legacyfabric.net/repository/legacyfabric/net/legacyfabric/yarn/1.7.10%2Bbuild.458/yarn-1.7.10%2Bbuild.458-mergedv2.jar
 # https://maven.minecraftforge.net/de/oceanlabs/mcp/mcp/1.8.9/mcp-1.8.9-srg.zip
 # https://maven.minecraftforge.net/de/oceanlabs/mcp/mcp_stable/22-1.8.9/mcp_stable-22-1.8.9.zip
-# [changing!] https://repo.legacyfabric.net/repository/legacyfabric/net/legacyfabric/yarn/1.8.9%2Bbuild.458/yarn-1.8.9%2Bbuild.458-mergedv2.jar
+# [dynamic!] https://repo.legacyfabric.net/repository/legacyfabric/net/legacyfabric/yarn/1.8.9%2Bbuild.458/yarn-1.8.9%2Bbuild.458-mergedv2.jar
 # https://maven.minecraftforge.net/de/oceanlabs/mcp/mcp/1.12.2/mcp-1.12.2-srg.zip
 # https://maven.minecraftforge.net/de/oceanlabs/mcp/mcp_stable/39-1.12/mcp_stable-39-1.12.zip
 #
@@ -26,11 +27,14 @@ Compares MCP and Yarn mappings.
 # Class: full/class/name
 # Field: full/class/name fieldName fieldDesc
 # Method: full/class/name methodName methodDesc
+# Parameter: full/class/name methodName methodDesc parameterIndex parameterName
 # (we use space as a separator)
-# (fieldDesc can be ? if unknown)
+# (fieldDesc and parameterName can be ? if unknown)
 
 # mappings[ver][(src, dest)][nameType][name]
 mappings = {}
+
+DESCRIPTOR_PATTERN = re.compile(r"\[*L[^;]+;|\[*[ZBCSIFDJ]|[ZBCSIFDJ]")
 
 def getWord(s, i):
     return s.split(" ")[i]
@@ -50,7 +54,7 @@ def putMappings(ver, mappingsToAdd):
         mappings[ver][dir] = mapping
 
 def newEmptyMapping():
-    return {"class": {}, "field": {}, "method": {}}
+    return {"class": {}, "field": {}, "method": {}, "parameter": {}}
 
 def replaceLastSlashWithSpace(s):
     lastSlash = s.rfind("/")
@@ -59,16 +63,22 @@ def replaceLastSlashWithSpace(s):
     else:
         return s
 
+def splitDescriptorParams(desc):
+    desc = desc[desc.index("(") + 1 : desc.rindex(")")]
+    return DESCRIPTOR_PATTERN.findall(desc)
+
 def loadNotch2Srg(ver, dir):
     dir = Path(dir)
     joined = [x.strip().split(' ') for x in open(dir / "joined.srg")]
+    constructorInfos = dict([x.strip().split('=') for x in open(dir / "joined.exc") if not x.startswith("#") and ".<init>" in x])
     
     notch2srg = newEmptyMapping()
     simpleSrg2notch = newEmptyMapping()
+    methodId2srg = newEmptyMapping()
     
     for line in joined:
         if line[0] == "CL:":
-            notch2srg["class"][line[1]] = line[2]
+            notch2srg["class"][line[1]] = line[2]        
         elif line[0] == "FD:":
             notchFull = replaceLastSlashWithSpace(line[1]) + " ?"
             notch2srg["field"][notchFull] = replaceLastSlashWithSpace(line[2]) + " ?"
@@ -78,22 +88,55 @@ def loadNotch2Srg(ver, dir):
                 simpleSrg2notch["field"]["? " + lastWord + " ?"] = notchFull
         elif line[0] == "MD:":
             notchFull = replaceLastSlashWithSpace(line[1]) + " " + line[2]
-            notch2srg["method"][notchFull] = replaceLastSlashWithSpace(line[3]) + " " + line[4]
+            srgFull = replaceLastSlashWithSpace(line[3]) + " " + line[4]
+            notch2srg["method"][notchFull] = srgFull
+            if srgFull.split(" ")[1].startswith("func_"):
+                methodId2srg["method"][srgFull.split(" ")[1].split("_")[1]] = srgFull
+            
+            for parameterIdx in range(len(splitDescriptorParams(line[2]))):
+                notch2srg["parameter"][notchFull + " " + str(parameterIdx) + " ?"] = srgFull + " " + str(parameterIdx) + " ?"
             
             lastWord = line[3].split("/")[-1]
             if lastWord.startswith("func_"):
                 simpleSrg2notch["method"]["? " + lastWord + " ?"] = notchFull
     
+    srg2notch = invertMapping(notch2srg)
+    
+    for line in joined:
+        if line[0] == "CL:":
+            for k, v in constructorInfos.items():
+                if k.startswith(line[2] + ".<init>"):
+                    assert v.count("|") == 1
+                    
+                    srgClazz = k[:k.index(".")]
+                    notchClazz = srg2notch["class"][srgClazz]
+                    srgDesc = k[k.index(">") + 1:]
+                    notchDesc = remapDesc(srgDesc, srg2notch["class"], "srg2notch-" + ver)
+                    notchFull = notchClazz + " <init> " + notchDesc
+                    srgFull = srgClazz + " <init> " + srgDesc
+                
+                    notch2srg["method"][notchFull] = srgFull
+                    
+                    paramNames = v[v.index("|") + 1:].split(",")
+                    
+                    methodId2srg["method"][paramNames[0].split("_")[1]] = srgFull
+                
+                    for paramName in paramNames:
+                        parameterIdx = int(paramName.split("_")[2]) - 1
+                        notch2srg["parameter"][notchFull + " " + str(parameterIdx) + " ?"] = srgFull + " " + str(parameterIdx) + " ?"
+    
     return [
         (("notch", "srg"), notch2srg),
-        (("srg", "notch"), invertMapping(notch2srg)),
-        (("simpleSrg", "notch"), simpleSrg2notch)
+        (("srg", "notch"), srg2notch),
+        (("simpleSrg", "notch"), simpleSrg2notch),
+        (("methodId", "srg"), methodId2srg),
     ]
 
 def loadSrg2MCP(ver, dir):
     dir = Path(dir)
     methods = list(csv.reader(open(dir / "methods.csv"), delimiter=',', quotechar='"'))
     fields = list(csv.reader(open(dir / "fields.csv"), delimiter=',', quotechar='"'))
+    params = list(csv.reader(open(dir / "params.csv"), delimiter=',', quotechar='"'))
     
     mapping = newEmptyMapping()
     
@@ -111,7 +154,20 @@ def loadSrg2MCP(ver, dir):
         fullSrg = translateName("method", fullNotch, ver, "notch", "srg")
         
         if fullSrg != None:
-            mapping["method"][fullSrg] = getWord(fullSrg, 0) + " " + name + " " + fullSrg[2]
+            mapping["method"][fullSrg] = getWord(fullSrg, 0) + " " + name + " " + fullSrg.split(" ")[2]
+    
+    for line in params[1:]:
+        param, name, side = line
+        
+        methodFullSrg = translateName("method", param.split("_")[1], ver, "methodId", "srg")
+        
+        if not methodFullSrg:
+            print("Failed to find method for parameter ", param, "in", dir.name)
+            continue
+        
+        paramIndex = int(param.split("_")[2]) - 1
+        
+        mapping["parameter"][methodFullSrg + " " + str(paramIndex) + " ?"] = (mapping["method"].get(methodFullSrg) or methodFullSrg) + " " + str(paramIndex) + " " + name
     
     return [
         (("srg", "mcp"), mapping),
@@ -161,8 +217,19 @@ def loadNotch2Intermediary2Yarn(ver, dir):
                 type = "field" if entry[1] == "f" else "method"
                 desc = "?" if type == "field" else entry[2]
                 intermediaryDesc = "?" if type == "field" else remapDesc(entry[2], notch2intermediary["class"], "notch2intermediary-" + ver)
-                notch2intermediary[type][cls + " " + entry[3] + " " + desc] = notch2intermediary["class"][cls] + " " + entry[4] + " " + intermediaryDesc
-                intermediary2yarn[type][notch2intermediary["class"][cls] + " " + entry[4] + " " + intermediaryDesc] = notch2intermediary["class"][cls] + " " + entry[5] + " " + intermediaryDesc
+                notchFull = cls + " " + entry[3] + " " + desc
+                intermediaryFull = notch2intermediary["class"][cls] + " " + entry[4] + " " + intermediaryDesc
+                yarnFull = notch2intermediary["class"][cls] + " " + entry[5] + " " + intermediaryDesc
+                notch2intermediary[type][notchFull] = intermediaryFull
+                intermediary2yarn[type][intermediaryFull] = yarnFull                    
+            elif entry[1] == "" and entry[2] == "p":
+                for parameterIdx in range(len(splitDescriptorParams(intermediaryDesc))):
+                    notchParamFull = notchFull + " " + str(parameterIdx) + " ?"
+                    intermediaryParamFull = intermediaryFull + " " + str(parameterIdx) + " ?"
+                    yarnParamFull = yarnFull + " " + str(parameterIdx) + " " + entry[6]
+                    
+                    notch2intermediary["parameter"][notchParamFull] = intermediaryParamFull
+                    intermediary2yarn["parameter"][intermediaryParamFull] = yarnParamFull
     
     return [
         (("notch", "intermediary"), notch2intermediary),
@@ -218,8 +285,11 @@ def incrementCoverage(map, type):
     
     map[type] += 1
 
-for nameType in ["class", "method", "field"]:
+for nameType in ["class", "method", "field", "parameter"]:
     for key in getKeys(nameType, "1.7.10", "notch"):
+        if nameType == "method" and key.split(" ")[1] == "<init>":
+            continue
+        
         nameMCP17_0 = translateName(nameType, key, "1.7.10", "notch", "srg")
         nameMCP17 = nameMCP17_0 if nameType == "class" else translateName(nameType, nameMCP17_0, "1.7.10", "srg", "mcp", different=True)
         
