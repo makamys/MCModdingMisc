@@ -1,0 +1,126 @@
+# forgegradle vs retrofuturagradle
+
+i recently updated unimixins to use rfg instead of fg, and immediately noticed
+that my ci build times have doubled. i did some profiling on my own machine and
+collected the results here.
+
+these were done in freshly cloned repos, but with a warm gradle cache.
+
+(note that unimixins is a special case that heavily uses gradle subprojects;
+these results may not apply to the average mod, at least not to this extent.)
+
+
+## tl;dr
+
+first rfg build takes 9 minutes, uses 2.62 gb of ram and 881 mb of disk space
+first fg build takes 1.5 minutes, uses 1.1 gb of ram and 72 mb of disk space
+
+incremental builds are comparable, they take ~30s with both. rfg may be slightly
+faster here.
+
+final disk space usage is 958 mb for fg and 339 mb for fg
+
+------------
+
+## rfg 1.3.19
+
+(unimixins commit: c3af5167df0c90104513c46106d1f2e127d1b549)
+
+
+### first build:
+
+./gradlew build --profile
+
+time: 8m 58s
+ram: 2.62 gb (15.38 gb -> 18 gb)
+disk: 881 mb
+
+rfg-01-build.html
+
+
+### rebuild (no changes):
+
+./gradlew build --profile
+
+ram: 1.5 gb (15.6 gb -> 17.1 gb) (measured later with a new daemon)
+time: 7s
+
+rfg-02-rebuild-identical.html
+
+
+### rebuild (tag changed):
+
+git tag 0.1.13
+./gradlew build --profile
+
+time: 30s
+
+rfg-03-rebuild-newtag.html
+
+
+### rebuild (added print to MixinCore):
+
+./gradlew build --profile
+
+time: 29s
+disk: 958 mb
+
+rfg-04-rebuild-newprint.html
+
+------------
+
+## fg 1.2.11-gtnh
+
+(unimixins commit: 9aa07d509c62416b49a6fb1a49a61160bdb31ab1)
+
+
+### first build (part 1):
+
+gradlew8 setupCIWorkspace --profile -PnoAltMixin
+
+time: 53s
+ram: 1.1 gb (14.5 gb -> 15.61 gb)
+disk: 2.09 mb
+
+fg-01a-build.html
+
+
+### first build (part 2):
+
+gradlew8 build --profile -PnoAltMixin
+
+time: 46s
+ram: 0.48 gb (14.5 gb -> 14.98 gb)
+disk: 72.3 mb
+
+fg-02b-build.html
+
+
+### rebuild (no changes):
+
+gradlew8 build --profile -PnoAltMixin
+
+ram: 1.34 gb (16.04 gb -> 17.38 gb) (measured later with a new daemon)
+time: 35s
+
+fg-03-rebuild-identical.html
+
+
+### rebuild (tag changed):
+
+git tag 0.1.13
+gradlew8 build --profile -PnoAltMixin
+
+time: 37s
+
+fg-04-rebuild-newtag.html
+
+
+### rebuild (added print to MixinCore):
+
+gradlew8 build --profile -PnoAltMixin
+
+time: 34s
+disk: 339 mb
+
+fg-05-rebuild-newprint.html
